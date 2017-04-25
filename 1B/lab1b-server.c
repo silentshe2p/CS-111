@@ -74,7 +74,7 @@ void read_write( int r_fd, int w_fd ) {
 		kill( cpid, SIGTERM );
 		exit(1);
 	}
-	if( crypt_fl && w_fd == socket_fd ) {
+	if( crypt_fl ) {
 		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
 			error( "Decrypting failed" );
 	}

@@ -101,7 +101,7 @@ void read_write( int r_fd, int w_fd ) {
 		exit(1);
 	if(log_fl)
 		log_count += b_read;
-	if( crypt_fl && w_fd == socket_fd ) {
+	if( crypt_fl ) {
 		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
 			error( "Decrypting failed" );
 	}
@@ -109,7 +109,7 @@ void read_write( int r_fd, int w_fd ) {
 	for( int i = 0; i < b_read; i++ ) {
 		if( write( STDOUT_FILENO, buf+i, 1 ) == -1 )
 			error( "write() failed" );
-		if( w_fd == socket ) {
+		if( w_fd != STDOUT_FILENO ) {
 			if(crypt_fl) {
 				if( mcrypt_generic( encrypt_fd, buf, BUF_SIZE ) != 0 )
 					error( "Encrypting failed" );
