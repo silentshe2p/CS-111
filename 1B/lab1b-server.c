@@ -37,7 +37,7 @@ char *IV;
 int key_size = 16;
 
 void error( char *msg ) {
-	fprintf( stderr, "%s", msg );
+	fprintf( stderr, "%s\n", msg );
 	exit(1);
 }
 

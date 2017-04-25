@@ -37,7 +37,7 @@ char *IV;
 int key_size = 16;
 
 void error( char *msg ) {
-	fprintf( stderr, "%s", msg );
+	fprintf( stderr, "%s\n", msg );
 	exit(1);
 }
 
@@ -167,7 +167,6 @@ int main( int argc, char **argv ) {
 				log_fd = creat( optarg, S_IRWXU );
 				if( log_fd == -1 )
 					error( "Error creating log" );
-				if( )
 				break;
 			case 'e': 
 				crypt_fl = 1;
