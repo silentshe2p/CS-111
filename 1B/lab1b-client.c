@@ -6,24 +6,31 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <termio.h>
 #include <getopt.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <mcrypt.h>
 
-const char CR = 0x0D;
-const char LF = 0x0A;
-const size_t BUF_SIZE = 1024;
+#define BUF_SIZE 1024
+
 struct termios saved_attr;
 int TIMEOUT = -1;
 int log_fl = 0;
-int encrypt_fl = 0;
+int crypt_fl = 0;
 int log_fd, socket_fd;
-char *log_file;
+int log_count = 0;
+int log_idx = 0;
+char log_buf[BUF_SIZE];
+MCRYPT encrypt_fd, decrypt_fd;
+char *key;
+char IV[6] = "IVIVIV";
+int key_size;
 
 void error( char *msg ) {
 	fprintf( stderr, "%s", msg );
@@ -37,6 +44,12 @@ void print_usage(int rc) {
 
 void reset_input_mode(void) {
 	tcsetattr( STDIN_FILENO, TCSANOW, &saved_attr );	
+	if(crypt_fl) {
+		mcrypt_generic_deinit(encrypt_fd);
+		mcrypt_module_close(encrypt_fd);
+		mcrypt_generic_deinit(decrypt_fd);
+		mcrypt_module_close(decrypt_fd);		
+	}
 }
 
 void set_input_mode(void) {
@@ -55,33 +68,73 @@ void set_input_mode(void) {
 	tcsetattr( STDIN_FILENO, TCSANOW, &attr );
 }
 
+void write_log( int receiving ) {
+	if(receiving) {
+		char start[9] = "RECEIVED ";
+		if( write( log_fd, start, 9 ) == -1 )
+			error( "write() failed" );
+	}
+	else {
+		char start[5] = "SENT ";
+		if( write( log_fd, start, 5 ) == -1 )
+			error( "write() failed" );
+	}
+
+	char end[9] = "byte(s): ";
+	if( write( log_fd, &log_count, 4 ) == -1 )
+		error( "write() failed" );	
+	if( write( log_fd, end, 9 ) == -1 )
+		error( "write() failed" );				
+	if( write( log_fd, log_buf, log_count ) == -1 )
+		error( "write() failed" );
+
+	char nl = '\n';	
+	if( write( log_fd, &nl, 1 ) == -1 )
+		error( "write() failed" );				
+}
+
 void read_write( int r_fd, int w_fd ) {
 	char buf[BUF_SIZE];
 	int b_read = read( r_fd, buf, BUF_SIZE );
 
-	if( b_read == 0 )
+	if( b_read <= 0 )
 		exit(1);
+	if(log_fl)
+		log_count += b_read;
+	if( crypt_fl && w_fd == socket_fd ) {
+		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
+			error( "Decrypting failed" );
+	}
+
 	for( int i = 0; i < b_read; i++ ) {
-		if( buf[i] == CR || buf[i] == LF ) {
-			char write_buf[2];
-			write_buf[0] = CR;
-			write_buf[1] = LF;
-			if( write( STDOUT_FILENO, write_buf, 2 ) == -1 )
-				error( "write() failed" );
-			if( w_fd != STDOUT_FILENO ) {
-				if( write( w_fd, write_buf+1, 1 ) == -1 )
-					error( "write() failed" );				
-			}			
-		}
-		else{
-			if( write( STDOUT_FILENO, buf+i, 1 ) == -1 )
-				error( "write() failed" );
-			if( w_fd != STDOUT_FILENO ) {
-				if( write( w_fd, buf+i, 1 ) == -1 )
-					error( "write() failed" );				
+		if( write( STDOUT_FILENO, buf+i, 1 ) == -1 )
+			error( "write() failed" );
+		if( w_fd == socket ) {
+			if(crypt_fl) {
+				if( mcrypt_generic( encrypt_fd, buf, BUF_SIZE ) != 0 )
+					error( "Encrypting failed" );
 			}
+			if( write( w_fd, buf+i, 1 ) == -1 )
+				error( "write() failed" );		
+		}
+		if(log_fl) {
+			log_buf[log_idx] = buf[i];
+			log_idx += 1;
 		}
 	}
+}
+
+char *process_key( char *file ) {
+	int key_fd = open( file, O_RDONLY );
+	if( key_fd == -1 )
+		error( "Opening key file failed" );
+	struct stat ks;
+	if( fstat( key_fd, &ks ) < 0 )
+		error( "fstat() failed" );
+	key = (char*) malloc( ks.st_size * sizeof(char) );
+	if( read( key_fd, key, ks.st_size ) == -1 )
+		error( "Reading key failed");
+	return key;
 }
 
 int main( int argc, char **argv ) {
@@ -94,26 +147,41 @@ int main( int argc, char **argv ) {
 	{
 		{"port", 	required_argument, 0, 'p'},
 		{"log", 	required_argument, 0, 'l'},
-		{"encrypt", no_argument, 	   0, 'e'}
+		{"encrypt", required_argument, 0, 'e'}
 	};
 
-	while( (opt = getopt_long( argc, argv, "p:l:e", long_opts, NULL )) != -1 ) {
+	while( (opt = getopt_long( argc, argv, "p:l:e:", long_opts, NULL )) != -1 ) {
 		switch(opt) {
 			case 'p': 
 				portno = atoi(optarg);
 				break;
-			case 'l': 
-				log_file = optarg;
+			case 'l':
 				log_fl = 1;
+				log_fd = creat( optarg, S_IRWXU );
 				break;
 			case 'e': 
-				encrypt_fl = 1;
+				crypt_fl = 1;
+				key = process_key(optarg);
 			default:
 				print_usage(1);
 				break;
 		}
 	}
 	set_input_mode();
+
+	// Encryption
+	if(crypt_fl) {
+		encrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		if( encrypt_fd == MCRYPT_FAILED )
+			error( "mcrypt_open failed" );
+		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
+			error( "mcrypt_init failed" );
+		decrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		if( decrypt_fd == MCRYPT_FAILED )
+			error( "mcrypt_open failed" );
+		if( mcrypt_generic_init( decrypt_fd, key, key_size, IV ) < 0 )
+			error( "mcrypt_init failed" );
+	}
 
 	// Create a socket point
 	socket_fd = socket( AF_INET, SOCK_STREAM, 0 );
@@ -139,14 +207,27 @@ int main( int argc, char **argv ) {
 		{ socket_fd,	POLLIN | POLLHUP | POLLERR, 0 },
 	};							
 
+	int log_switch = 0;
 	while(1) {
 		int ret = poll(pfds, 2, TIMEOUT);
 		if( ret == -1 )
 			error( "poll() error" );
 		if( pfds[0].revents & POLLIN ) {
+			if( log_fl && log_switch == 1 ) {
+				write_log(0);
+				log_count = 0;
+				log_idx = 0;
+				log_switch = 0;
+			}
 			read_write( pfds[0].fd, socket_fd );
 		}
 		if( pfds[1].revents & POLLIN ) {
+			if( log_fl && log_switch == 0 ) {
+				write_log(1);
+				log_count = 0;
+				log_idx = 0;
+				log_switch = 1;
+			}
 			read_write( pfds[1].fd, STDOUT_FILENO );
 		}
 		if( (pfds[0].revents & (POLLHUP+POLLERR)) || (pfds[1].revents & (POLLHUP+POLLERR)) )

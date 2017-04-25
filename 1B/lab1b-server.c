@@ -6,22 +6,35 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <getopt.h>
 #include <poll.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <mcrypt.h>
 
+#define BUF_SIZE 1024
+
 const char CR = 0x0D;
 const char LF = 0x0A;
-const size_t BUF_SIZE = 1024;
+const char CTRL_D = 0x04;
+const char CTRL_C = 0X03;
 const int TIMEOUT = -1;
 pid_t cpid;
-int encrypt_fl = 0;
+int to_child_pipe[2];
+int from_child_pipe[2];
+int crypt_fl = 0;
 int socket_fd, newsocket_fd;
+int STDERR_COPY;
+MCRYPT encrypt_fd, decrypt_fd;
+char *key;
+char IV[6] = "IVIVIV";
+int key_size;
 
 void error( char *msg ) {
 	fprintf( stderr, "%s", msg );
@@ -33,12 +46,39 @@ void print_usage(int rc) {
 	exit(rc);
 }
 
+void shut_down(void) {
+	if(crypt_fl) {
+		mcrypt_generic_deinit(encrypt_fd);
+		mcrypt_module_close(encrypt_fd);
+		mcrypt_generic_deinit(decrypt_fd);
+		mcrypt_module_close(decrypt_fd);		
+	}
+
+	dup2(STDERR_COPY, STDERR_FILENO);
+	int stat;
+	waitpid( cpid, &stat, 0 );
+	if( WIFEXITED(stat) )
+		fprintf( stderr, "SHELL EXIT SIGNAL=%d STATUS=%x\n", WEXITSTATUS(stat), (stat&0x007F) );	
+	else if( WIFSIGNALED(stat) )
+		fprintf( stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\n", WTERMSIG(stat), (stat&0x007F) );
+	else
+		fprintf( stderr, "SHELL EXIT\n" );
+	close(socket_fd);			
+}
+
 void read_write( int r_fd, int w_fd ) {
 	char buf[BUF_SIZE];
 	int b_read = read( r_fd, buf, BUF_SIZE );
 
-	if( b_read == 0 )
+	if( b_read <= 0 ) {
+		kill( cpid, SIGTERM );
 		exit(1);
+	}
+	if( crypt_fl && w_fd == socket_fd ) {
+		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
+			error( "Decrypting failed" );
+	}
+
 	for( int i = 0; i < b_read; i++ ) {
 		if( buf[i] == CR || buf[i] == LF ) {
 			char write_buf[2];
@@ -46,14 +86,28 @@ void read_write( int r_fd, int w_fd ) {
 			write_buf[1] = LF;
 			if( write( STDOUT_FILENO, write_buf, 2 ) == -1 )
 				error( "write() failed" );
+			if( w_fd != STDOUT_FILENO ) {
+				if( write( w_fd, write_buf+1, 1 ) == -1 )
+					error( "write() failed" );				
+			}			
 		}
+		else if( buf[i] == CTRL_D ){
+			close( to_child_pipe[1] );
+			exit(0);
+		}
+		else if( buf[i] == CTRL_C ) {
+			close( to_child_pipe[1] );
+			close( from_child_pipe[0] );
+			kill( cpid, SIGINT );
+			exit(1);			
+		}		
 		else{
-			if( write( STDOUT_FILENO, buf+i, 1 ) == -1 )
+			if(crypt_fl) {
+				if( mcrypt_generic( encrypt_fd, buf, BUF_SIZE ) != 0 )
+					error( "Encrypting failed" );
+			}			
+			if( write( w_fd, buf+i, 1 ) == -1 )
 				error( "write() failed" );
-			// if( w_fd == sock_fd ) {
-			// 	if( write( STDOUT_FILENO, write_buf, 2 ) == -1 )
-			// 		error( "write() failed" );				
-			// }
 		}
 	}
 }
@@ -61,6 +115,28 @@ void read_write( int r_fd, int w_fd ) {
 void make_pipe(int fds[2]) {
 	if( pipe(fds) == -1 )
 		error( "pipe() failed" );
+}
+
+void sig_handler(int signum) {
+	if( signum == SIGPIPE ) {
+		close( to_child_pipe[1] );
+		close( from_child_pipe[0] );		
+		kill( cpid, SIGKILL );
+		exit(0);
+	}
+}
+
+char *process_key( char *file ) {
+	int key_fd = open( file, O_RDONLY );
+	if( key_fd == -1 )
+		error( "Opening key file failed" );
+	struct stat ks;
+	if( fstat( key_fd, &ks ) < 0 )
+		error( "fstat() failed" );
+	key = (char*) malloc( ks.st_size * sizeof(char) );
+	if( read( key_fd, key, ks.st_size ) == -1 )
+		error( "Reading key failed");
+	return key;
 }
 
 int main( int argc, char **argv ) {
@@ -71,22 +147,39 @@ int main( int argc, char **argv ) {
 	static struct option long_opts[] = 
 	{
 		{"port", 	required_argument, 0, 'p'},
-		{"encrypt", no_argument, 	   0, 'e'}
+		{"encrypt", required_argument, 0, 'e'}
 	};
 
-	while( (opt = getopt_long(argc, argv, "p:e", long_opts, NULL)) != -1 ) {
+	atexit(shut_down);
+
+	while( (opt = getopt_long( argc, argv, "p:e:", long_opts, NULL )) != -1 ) {
 		switch(opt) {
 			case 'p':
 				portno = atoi(optarg);
 				break;
 			case 'e':
-				encrypt_fl = 1;
+				crypt_fl = 1;
+				key = process_key(optarg);
 				break;
 			default:
 				print_usage(1);
 				break;
 		}
 	}
+
+	// Encryption
+	if(crypt_fl) {
+		encrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		if( encrypt_fd == MCRYPT_FAILED )
+			error( "mcrypt_open failed" );
+		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
+			error( "mcrypt_init failed" );
+		decrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		if( decrypt_fd == MCRYPT_FAILED )
+			error( "mcrypt_open failed" );
+		if( mcrypt_generic_init( decrypt_fd, key, key_size, IV ) < 0 )
+			error( "mcrypt_init failed" );
+	}	
 
 	// Create socket connection
 	socket_fd = socket( AF_INET, SOCK_STREAM, 0 );
@@ -111,13 +204,14 @@ int main( int argc, char **argv ) {
 	newsocket_fd = accept( socket_fd, (struct sockaddr*) &client_addr, &client_len );
 	if( newsocket_fd < 0 )
 		error( "Error on accept" );
+
+	STDERR_COPY = dup(STDERR_FILENO);
 	dup2( newsocket_fd, STDIN_FILENO );
 	dup2( newsocket_fd, STDOUT_FILENO );
 	dup2( newsocket_fd, STDERR_FILENO );
 	close(newsocket_fd);
+	signal( SIGPIPE, sig_handler );
 
-	int to_child_pipe[2];
-	int from_child_pipe[2];
 	make_pipe(to_child_pipe);
 	make_pipe(from_child_pipe);
 	cpid = fork();
@@ -163,13 +257,14 @@ int main( int argc, char **argv ) {
 		execvp_argv[0] = execvp_filename;
 		execvp_argv[1] = NULL;
 		if( execvp( execvp_filename, execvp_argv ) == -1 ) {
-			fprintf( stderr, "execvp() failed.\r\n" );
+			fprintf( stderr, "execvp() failed" );
 			exit(1);
 		}
 	}
 	else {
-		fprintf( stderr, "fork() failed.\r\n" );
+		fprintf( stderr, "fork() failed" );
 		exit(1);
 	}
+
 	exit(0);
 } 

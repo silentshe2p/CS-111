@@ -7,7 +7,7 @@ files = lab1b-client.c lab1b-server.c Makefile my.key README
 ID = 104737449
 tar_name = lab1b-$(ID).tar.gz
 CC = gcc
-CFLAG = -g -Wall
+CFLAG = -g -Wall -D_GNU_SOURCE
 
 default: server client
 
