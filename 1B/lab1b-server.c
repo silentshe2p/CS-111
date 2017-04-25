@@ -25,6 +25,7 @@ const char LF = 0x0A;
 const char CTRL_D = 0x04;
 const char CTRL_C = 0X03;
 const int TIMEOUT = -1;
+const char FILL_IV = 'A';
 pid_t cpid;
 int to_child_pipe[2];
 int from_child_pipe[2];
@@ -33,7 +34,7 @@ int socket_fd, newsocket_fd;
 int STDERR_COPY;
 MCRYPT encrypt_fd, decrypt_fd;
 char *key;
-char IV[6] = "IVIVIV";
+char *IV;
 int key_size;
 
 void error( char *msg ) {
@@ -169,12 +170,15 @@ int main( int argc, char **argv ) {
 
 	// Encryption
 	if(crypt_fl) {
-		encrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		encrypt_fd = mcrypt_module_open( "twofish", NULL, "cfb", NULL );
 		if( encrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
+		IV = malloc( mcrypt_enc_get_iv_size(encrypt_fd) );
+		for( i=0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
+    		IV[i] = FILL_IV;
 		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
 			error( "mcrypt_init failed" );
-		decrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		decrypt_fd = mcrypt_module_open( "twofish", NULL, "cfb", NULL );
 		if( decrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
 		if( mcrypt_generic_init( decrypt_fd, key, key_size, IV ) < 0 )

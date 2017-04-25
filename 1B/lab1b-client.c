@@ -19,6 +19,7 @@
 
 #define BUF_SIZE 1024
 
+const char FILL_IV = 'A';
 struct termios saved_attr;
 int TIMEOUT = -1;
 int log_fl = 0;
@@ -29,7 +30,7 @@ int log_idx = 0;
 char log_buf[BUF_SIZE];
 MCRYPT encrypt_fd, decrypt_fd;
 char *key;
-char IV[6] = "IVIVIV";
+char *IV;
 int key_size;
 
 void error( char *msg ) {
@@ -171,12 +172,15 @@ int main( int argc, char **argv ) {
 
 	// Encryption
 	if(crypt_fl) {
-		encrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		encrypt_fd = mcrypt_module_open( "twofish", NULL, "cfb", NULL );
 		if( encrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
+		IV = malloc( mcrypt_enc_get_iv_size(encrypt_fd) );
+		for( i=0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
+    		IV[i] = FILL_IV;		
 		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
 			error( "mcrypt_init failed" );
-		decrypt_fd = mcrypt_module_open( "blowfish", NULL, "cfb", NULL );
+		decrypt_fd = mcrypt_module_open( "twofish", NULL, "cfb", NULL );
 		if( decrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
 		if( mcrypt_generic_init( decrypt_fd, key, key_size, IV ) < 0 )
