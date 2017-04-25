@@ -18,6 +18,10 @@
 
 #define BUF_SIZE 1024
 
+const char CR = 0x0D;
+const char LF = 0x0A;
+const char CTRL_D = 0x04;
+const char CTRL_C = 0X03;
 const char FILL_IV = 'A';
 struct termios saved_attr;
 int TIMEOUT = -1;
@@ -161,6 +165,9 @@ int main( int argc, char **argv ) {
 			case 'l':
 				log_fl = 1;
 				log_fd = creat( optarg, S_IRWXU );
+				if( log_fd == -1 )
+					error( "Error creating log" );
+				if( )
 				break;
 			case 'e': 
 				crypt_fl = 1;
