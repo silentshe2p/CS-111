@@ -35,7 +35,7 @@ int STDERR_COPY;
 MCRYPT encrypt_fd, decrypt_fd;
 char *key;
 char *IV;
-int key_size;
+int key_size = 16;
 
 void error( char *msg ) {
 	fprintf( stderr, "%s", msg );
@@ -75,8 +75,8 @@ void read_write( int r_fd, int w_fd ) {
 		kill( cpid, SIGTERM );
 		exit(1);
 	}
-	if( crypt_fl ) {
-		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
+	if( crypt_fl && r_fd == STDIN_FILENO ) {
+		if( mdecrypt_generic( decrypt_fd, buf, b_read ) != 0 )
 			error( "Decrypting failed" );
 	}
 
@@ -103,8 +103,8 @@ void read_write( int r_fd, int w_fd ) {
 			exit(1);			
 		}		
 		else{
-			if(crypt_fl) {
-				if( mcrypt_generic( encrypt_fd, buf, BUF_SIZE ) != 0 )
+			if(crypt_fl && w_fd == STDOUT_FILENO) {
+				if( mcrypt_generic( encrypt_fd, buf, b_read ) != 0 )
 					error( "Encrypting failed" );
 			}			
 			if( write( w_fd, buf+i, 1 ) == -1 )
@@ -131,11 +131,11 @@ char *process_key( char *file ) {
 	int key_fd = open( file, O_RDONLY );
 	if( key_fd == -1 )
 		error( "Opening key file failed" );
-	struct stat ks;
-	if( fstat( key_fd, &ks ) < 0 )
-		error( "fstat() failed" );
-	key = (char*) malloc( ks.st_size * sizeof(char) );
-	if( read( key_fd, key, ks.st_size ) == -1 )
+	//struct stat ks;
+	//if( fstat( key_fd, &ks ) < 0 )
+	//	error( "fstat() failed" );
+	key = calloc(1, key_size);
+	if( read( key_fd, key, key_size ) == -1 )
 		error( "Reading key failed");
 	return key;
 }
@@ -174,7 +174,7 @@ int main( int argc, char **argv ) {
 		if( encrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
 		IV = malloc( mcrypt_enc_get_iv_size(encrypt_fd) );
-		for( i=0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
+		for( int i = 0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
     		IV[i] = FILL_IV;
 		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
 			error( "mcrypt_init failed" );

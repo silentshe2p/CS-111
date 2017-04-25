@@ -31,7 +31,7 @@ char log_buf[BUF_SIZE];
 MCRYPT encrypt_fd, decrypt_fd;
 char *key;
 char *IV;
-int key_size;
+int key_size = 16;
 
 void error( char *msg ) {
 	fprintf( stderr, "%s", msg );
@@ -82,7 +82,7 @@ void write_log( int receiving ) {
 	}
 
 	char end[9] = "byte(s): ";
-	if( write( log_fd, &log_count, 4 ) == -1 )
+	if( write( log_fd, &log_count, sizeof(int) ) == -1 )
 		error( "write() failed" );	
 	if( write( log_fd, end, 9 ) == -1 )
 		error( "write() failed" );				
@@ -102,8 +102,8 @@ void read_write( int r_fd, int w_fd ) {
 		exit(1);
 	if(log_fl)
 		log_count += b_read;
-	if( crypt_fl ) {
-		if( mdecrypt_generic( decrypt_fd, buf, BUF_SIZE ) != 0 )
+	if( crypt_fl && r_fd != STDIN_FILENO ) {
+		if( mdecrypt_generic( decrypt_fd, buf, b_read ) != 0 )
 			error( "Decrypting failed" );
 	}
 
@@ -112,7 +112,7 @@ void read_write( int r_fd, int w_fd ) {
 			error( "write() failed" );
 		if( w_fd != STDOUT_FILENO ) {
 			if(crypt_fl) {
-				if( mcrypt_generic( encrypt_fd, buf, BUF_SIZE ) != 0 )
+				if( mcrypt_generic( encrypt_fd, buf, b_read ) != 0 )
 					error( "Encrypting failed" );
 			}
 			if( write( w_fd, buf+i, 1 ) == -1 )
@@ -129,11 +129,11 @@ char *process_key( char *file ) {
 	int key_fd = open( file, O_RDONLY );
 	if( key_fd == -1 )
 		error( "Opening key file failed" );
-	struct stat ks;
-	if( fstat( key_fd, &ks ) < 0 )
-		error( "fstat() failed" );
-	key = (char*) malloc( ks.st_size * sizeof(char) );
-	if( read( key_fd, key, ks.st_size ) == -1 )
+	//struct stat ks;
+	//if( fstat( key_fd, &ks ) < 0 )
+	//	error( "fstat() failed" );
+	key = calloc(1, key_size);
+	if( read( key_fd, key, key_size ) == -1 )
 		error( "Reading key failed");
 	return key;
 }
@@ -148,7 +148,7 @@ int main( int argc, char **argv ) {
 	{
 		{"port", 	required_argument, 0, 'p'},
 		{"log", 	required_argument, 0, 'l'},
-		{"encrypt", required_argument, 0, 'e'}
+		{"encrypt", 	required_argument, 0, 'e'}
 	};
 
 	while( (opt = getopt_long( argc, argv, "p:l:e:", long_opts, NULL )) != -1 ) {
@@ -163,6 +163,7 @@ int main( int argc, char **argv ) {
 			case 'e': 
 				crypt_fl = 1;
 				key = process_key(optarg);
+				break;
 			default:
 				print_usage(1);
 				break;
@@ -176,7 +177,7 @@ int main( int argc, char **argv ) {
 		if( encrypt_fd == MCRYPT_FAILED )
 			error( "mcrypt_open failed" );
 		IV = malloc( mcrypt_enc_get_iv_size(encrypt_fd) );
-		for( i=0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
+		for( int i = 0; i< mcrypt_enc_get_iv_size(encrypt_fd); i++ )
     		IV[i] = FILL_IV;		
 		if( mcrypt_generic_init( encrypt_fd, key, key_size, IV ) < 0 )
 			error( "mcrypt_init failed" );
