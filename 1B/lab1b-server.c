@@ -13,7 +13,6 @@
 #include <sys/wait.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <mcrypt.h>
@@ -131,9 +130,6 @@ char *process_key( char *file ) {
 	int key_fd = open( file, O_RDONLY );
 	if( key_fd == -1 )
 		error( "Opening key file failed" );
-	//struct stat ks;
-	//if( fstat( key_fd, &ks ) < 0 )
-	//	error( "fstat() failed" );
 	key = calloc(1, key_size);
 	if( read( key_fd, key, key_size ) == -1 )
 		error( "Reading key failed");

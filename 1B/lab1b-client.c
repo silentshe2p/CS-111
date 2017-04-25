@@ -12,7 +12,6 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <mcrypt.h>
@@ -70,22 +69,23 @@ void set_input_mode(void) {
 }
 
 void write_log( int receiving ) {
+	int high = log_count/10;
+	int low = log_count%10;
 	if(receiving) {
-		char start[9] = "RECEIVED ";
-		if( write( log_fd, start, 9 ) == -1 )
+		char start[22] = "RECEIVED xx byte(s):";
+		start[9] = '0' + high;
+		start[10] = '0' + low;
+		if( write( log_fd, start, 22 ) == -1 )
 			error( "write() failed" );
 	}
 	else {
-		char start[5] = "SENT ";
-		if( write( log_fd, start, 5 ) == -1 )
+		char start[17] = "SENT xx byte(s):";
+		start[5] = '0' + high;
+		start[6] = '0' + low;
+		if( write( log_fd, start, 17 ) == -1 )
 			error( "write() failed" );
 	}
-
-	char end[9] = "byte(s): ";
-	if( write( log_fd, &log_count, sizeof(int) ) == -1 )
-		error( "write() failed" );	
-	if( write( log_fd, end, 9 ) == -1 )
-		error( "write() failed" );				
+				
 	if( write( log_fd, log_buf, log_count ) == -1 )
 		error( "write() failed" );
 
@@ -118,9 +118,14 @@ void read_write( int r_fd, int w_fd ) {
 			if( write( w_fd, buf+i, 1 ) == -1 )
 				error( "write() failed" );		
 		}
-		if(log_fl) {
-			log_buf[log_idx] = buf[i];
-			log_idx += 1;
+		if( log_fl ) {		
+			if( buf[i] == CR || buf[i] == LF || buf[i] == CTRL_C || buf[i] == CTRL_D ) {
+				log_count -= 1;
+			}	
+			else {
+				log_buf[log_idx] = buf[i];
+				log_idx += 1;
+			}						
 		}
 	}
 }
@@ -129,9 +134,6 @@ char *process_key( char *file ) {
 	int key_fd = open( file, O_RDONLY );
 	if( key_fd == -1 )
 		error( "Opening key file failed" );
-	//struct stat ks;
-	//if( fstat( key_fd, &ks ) < 0 )
-	//	error( "fstat() failed" );
 	key = calloc(1, key_size);
 	if( read( key_fd, key, key_size ) == -1 )
 		error( "Reading key failed");
