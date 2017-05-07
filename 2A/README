@@ -1,0 +1,23 @@
+NAME: Bach Hoang
+ID: 104737449
+EMAIL: ko.wing.bird@gmail.com
+
+2.1.1:
+It takes many iterations before errors are seen because the number of iterations
+increases the chance that more than one thread accessing the shared resource (counter)
+at the same time causing the race condition.
+A significantly smaller number of iterations seldom fail since the probability of
+multiple threads entering the critical section at the same time is significantly low 
+which means much less chance for race condition to happen.
+
+2.1.2:
+The average cost per operation equals the total run time divided by the number of
+operation so the average cost per operation drops with increasing iterations. Also
+thread creation is expensive but by having many iterations the cost become
+insignificant.
+If the cost per operation is a function of the number of iterations we can have the
+number of iterations to go to infinity and when the cost converges, we know we have
+the 'correct' cost (or how many iterations to run).
+
+2.1.4:
+
