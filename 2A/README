@@ -4,8 +4,8 @@ EMAIL: ko.wing.bird@gmail.com
 
 2.1.1:
 It takes many iterations before errors are seen because the number of iterations
-increases the chance that more than one thread accessing the shared resource (counter)
-at the same time causing the race condition.
+increases the chance that more than one thread accessing the shared resource 
+(counter) at the same time causing the race condition.
 A significantly smaller number of iterations seldom fail since the probability of
 multiple threads entering the critical section at the same time is significantly low 
 which means much less chance for race condition to happen.
@@ -20,4 +20,16 @@ number of iterations to go to infinity and when the cost converges, we know we h
 the 'correct' cost (or how many iterations to run).
 
 2.1.4:
+All of the options perform similarly for low numbers of threads because the chance 
+of more than one thread entering critical section is low. The threads perform
+the work in a seemingly sequential fashion therefore the lock doesn't have much
+work to do.
+The three protected operations slow down as the number of threads rises since now
+the probability of more than one thread entering critical section is high and the
+lock protects the section by keeping threads waiting. The more threads we have the
+higher this waiting time.
+
+2.2.1:
+
+2.2.2:
 

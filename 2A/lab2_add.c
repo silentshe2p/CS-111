@@ -10,7 +10,8 @@
 const char MUTEX = 'm';
 const char SPIN = 's';
 const char COMPARE = 'c';
-int iteration = 1;
+int num_threads = 1;
+int iterations = 1;
 int opt_yield = 0;
 int lock = 0;
 char sync = '\0';
@@ -41,7 +42,7 @@ void cas_add( long long *pointer, long long value ) {
 
 void *do_add( void *counter ) {
 	// add 1
-	for( int i = 0; i < iteration; i++ ) {
+	for( int i = 0; i < iterations; i++ ) {
 		if( sync == MUTEX ) {
 			if( pthread_mutex_lock(&mutex) != 0 ) {
 				fprintf( stderr, "mutex_lock() failed" );
@@ -65,7 +66,7 @@ void *do_add( void *counter ) {
 			add( counter, 1 );
 	}
 	// add -1
-	for( int i = 0; i < iteration; i++ ) {
+	for( int i = 0; i < iterations; i++ ) {
 		if( sync == MUTEX ) {
 			if( pthread_mutex_lock(&mutex) != 0 ) {
 				fprintf( stderr, "mutex_lock() failed" );
@@ -94,7 +95,6 @@ void *do_add( void *counter ) {
 int main( int argc, char *argv[] ) {
 	long long counter = 0;
 	int opt = 0;
-	int num_threads = 1;
 	static struct option long_opts[] = 
 	{
 		{"threads", required_argument, 0, 't'},
@@ -109,7 +109,7 @@ int main( int argc, char *argv[] ) {
 				num_threads = atoi(optarg);
 				break;
 			case 'i':
-				iteration = atoi(optarg);
+				iterations = atoi(optarg);
 				break;
 			case 'y':
 				opt_yield = 1;
@@ -155,9 +155,9 @@ int main( int argc, char *argv[] ) {
 		exit(1);
 	}
 
-	int num_operations = num_threads * iteration * 2;
-	int total_run_time = ( end.tv_sec - start.tv_sec ) * BILLION + ( end.tv_nsec - start.tv_nsec );
-	int avg_time_per_op = total_run_time / num_operations;
+	int num_operations = num_threads * iterations * 2;
+	long long total_run_time = ( end.tv_sec - start.tv_sec ) * BILLION + ( end.tv_nsec - start.tv_nsec );
+	long long avg_time_per_op = total_run_time / num_operations;
 
 	if( opt_yield ) {
 		if( sync == '\0' )
@@ -171,6 +171,6 @@ int main( int argc, char *argv[] ) {
 		else
 			fprintf( stdout, "add-%c", sync );
 	}
-	fprintf( stdout, ",%d,%d,%d,%d,%d,%lld\n", num_threads, iteration, num_operations, total_run_time, avg_time_per_op, counter );
+	fprintf( stdout, ",%d,%d,%d,%lld,%lld,%lld\n", num_threads, iterations, num_operations, total_run_time, avg_time_per_op, counter );
 	return 0;
 }
