@@ -118,10 +118,10 @@ int main( int argc, char *argv[] ) {
 				if( optarg[0] == MUTEX || optarg[0] == SPIN || optarg[0] == COMPARE )
 					sync = optarg[0];
 				else 
-					print_usage(2);
+					print_usage(1);
 				break;
 			default:
-				print_usage(2);
+				print_usage(1);
 		}
 	}
 
@@ -161,7 +161,7 @@ int main( int argc, char *argv[] ) {
 
 	if( opt_yield ) {
 		if( sync == '\0' )
-			fprintf( stdout, "add-yield-none," );
+			fprintf( stdout, "add-yield-none" );
 		else
 			fprintf( stdout, "add-yield-%c", sync );
 	}

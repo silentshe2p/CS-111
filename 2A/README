@@ -30,6 +30,37 @@ lock protects the section by keeping threads waiting. The more threads we have t
 higher this waiting time.
 
 2.2.1:
+The variation in time per mutex-protected operation vs the number of threads in add
+and sorted lists is that the critical section for the sorted list is longer meaning
+that there are more chances that more than one thread entering it at the same time.
+That's why it will take longer for the locking mechanism. 
+The curve for add goes upward and then start going down when the number of threads
+equals 4 while the curve for sorted list consistantly going up.
+The reason for the difference in shape is that again the critical section in sorted
+list is longer than in add so even through with large number of iterations the cost
+per operation for sorted list keeps increasing while the cost for add decreases at
+some point.
 
 2.2.2:
+Based on List-4 graph, mutex scales better than spin lock meaning the cost per 
+operation for mutex is less than for spin lock as the number of threads increase. 
+The cost per operation for both are roughly the same when the number of threads is 
+1 but diverges as the number of threads increases. 
+The mutex curve is an nearly smooth upward curve while the spin lock curve is also 
+an upward curve but with inconsistance. The rate of increase for mutex is gradual
+while spin lock has sharp increase intervals and even a minor decrease interval.
+The reason for this is that the critical section for link list is large and spin
+lock is not effective to keep CPU spinning during a long critical section.
 
+
+File included:
+lab2_add.c : program for part 1
+lab2_add.csv : result for part 1 test
+lab2_add-1/2/3/4/5.png : graphs for part 1
+lab2_add.gp : gnuplot script for part 1
+lab2_list.c, SortedList.h, SortedList.c : program for part 2
+lab2_list.csv : result for part 2 test
+lab2_list-1/2/3/4.png : graphs for part 2
+lab2_list.gp : gnuplot scipt for part 2
+sample.sh : script to generate the 2 csv files
+Makefile, README 
