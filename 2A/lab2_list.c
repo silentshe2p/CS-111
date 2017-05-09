@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <sched.h>
 #include <string.h>
+#include <signal.h>
 #include "SortedList.h"
 
 #define BILLION 1000000000L
@@ -25,33 +26,42 @@ char sync = '\0';
 pthread_mutex_t mutex;
 SortedList_t *list;
 SortedListElement_t *elements;
-char *randChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
 
 int print_usage( int rc ) {
 	fprintf( stderr, "Usage [ys] -t threads# i iterations#\n" );
 	exit(rc);
 }
 
-void assign_random_key( SortedListElement_t element ) {
-	srand( time(NULL) );
-	char *key = malloc( (KEY_LENGTH+1) * sizeof(char) );
-	if( key == NULL ) {
-		fprintf( stderr, "malloc() failed\n" );
-		exit(1);
+void sig_handler( int signum ) {
+	if( signum == SIGSEGV ) {
+		fprintf( stderr, "Segmentation fault caught\n" );
+		exit(2);
 	}
-	for( int i = 0; i < KEY_LENGTH; i++ ) {
-		// ASCII 65(A) to 122(z)
-		key[i] = rand() % 58 + 65;
-	}
-	key[KEY_LENGTH] = '\0';
-	fprintf( stdout, "key is %s\n", key );
-	element.key = key;
 }
 
-void *thead_func( void *tid ) {
+void assign_random_key() {
+	srand( time(NULL) );
+	for( int i = 0; i < required; i++ ) {
+		char *key = malloc( (KEY_LENGTH+1) * sizeof(char) );
+		if( key == NULL ) {
+			fprintf( stderr, "malloc() failed\n" );
+			exit(1);
+		}
+		for( int i = 0; i < KEY_LENGTH; i++ ) {
+			// ASCII 65(A) to 122(z)
+			key[i] = rand() % 58 + 65;
+		}
+		key[KEY_LENGTH] = '\0';
+		// fprintf( stdout, "key is %s\n", key );
+		elements[i].key = key;
+	}
+}
+
+void *thead_func( void *v_tid ) {
+	int tid = *(int *)v_tid;
 	// Insert elements into the list
-	for( int i = *(int*)tid; i < required; i += num_threads ) {
+	// fprintf( stdout, "before insert: %d\n", SortedList_length(list) );
+	for( int i = tid; i < required; i += num_threads ) {
 		if( sync == MUTEX ) {
 			pthread_mutex_lock(&mutex);
 			SortedList_insert( list, &elements[i] );
@@ -65,11 +75,12 @@ void *thead_func( void *tid ) {
 		else
 			SortedList_insert( list, &elements[i] );
 	}
+	// fprintf( stdout, "after insert: %d\n", SortedList_length(list) );
 	// Get the list length
 	SortedList_length(list);
 	SortedListElement_t *tmp;
 	// Lookup and delete previously inserted elements from the list
-	for( int i = *(int*)tid; i < required; i += num_threads ) {
+	for( int i = tid; i < required; i += num_threads ) {
 		if( sync == MUTEX ) {
 			pthread_mutex_lock(&mutex);
 			tmp = SortedList_lookup( list, elements[i].key );
@@ -97,15 +108,16 @@ void *thead_func( void *tid ) {
 			__sync_lock_release(&lock);
 		}
 		else {
-			tmp = SortedList_lookup( list, elements[i].key );
+			tmp = SortedList_lookup( list, elements[i].key );	
 			if( tmp == NULL ) {
 				fprintf( stderr, "Unable to find an element that was inserted\n" );
 				exit(2);
-			}				
+			}
 			if( SortedList_delete(tmp) != 0 ) {
-				fprintf( stderr, "Unable to delele\n" );
+				fprintf( stderr, "Unable to delele with key of %s\n", tmp->key );
 				exit(2);
-			}				
+			}
+			// fprintf( stdout, "after delete: %d\n", SortedList_length(list) );				
 		}
 	}
 	return NULL;
@@ -131,6 +143,8 @@ int main( int argc, char *argv[] ) {
 				iterations = atoi(optarg);
 				break;
 			case 'y':
+				if( strlen(optarg) > 3 )
+					print_usage(2);
 				yield_op = malloc( strlen(optarg) * sizeof(char) );
 				yield_op = optarg;
 				for( int i = 0; optarg[i] != '\0'; i++ ) {
@@ -162,26 +176,21 @@ int main( int argc, char *argv[] ) {
 		fprintf( stderr, "malloc() failed\n" );
 		exit(1);
 	}
-	list->key = NULL;
 	list->next = list;
 	list->prev = list;
+	list->key = NULL;
 	elements = malloc( required * sizeof(SortedListElement_t) );
 	if( elements == NULL ) {
 		fprintf( stderr, "malloc() failed\n" );
 		exit(1);
 	}
+	signal( SIGSEGV, sig_handler );
+	assign_random_key();
 
-	for( int i = 0; i < required; i++ ) {
-		assign_random_key(elements[i]);
-		// random_key(key);
-		// fprintf( stdout, "key is %s\n", key );
-		// elements[i].key = key;
-	}
-	printf("h");
 	if( sync == MUTEX )
 		pthread_mutex_init( &mutex, NULL );
 	pthread_t threads[num_threads];
-	int *tid = malloc( num_threads * sizeof(int) );
+	int *tids = malloc( num_threads * sizeof(int) );
 	struct timespec start, end;
 
 	// Start timer
@@ -192,8 +201,8 @@ int main( int argc, char *argv[] ) {
 
 	// Create thread(s)
 	for( int i = 0; i < num_threads; i++ ) {
-		tid[i] = i;
-		if( pthread_create( &threads[i], NULL, thead_func, &tid[i] ) != 0 ) {
+		tids[i] = i;
+		if( pthread_create( &threads[i], NULL, thead_func, &tids[i] ) != 0 ) {
 			fprintf( stderr, "pthread_create() failed\n" );
 			exit(1);
 		}
@@ -211,8 +220,6 @@ int main( int argc, char *argv[] ) {
 		fprintf( stderr, "clock_gettime() failed\n" );
 		exit(1);
 	}
-	free(tid);
-	// free(key);
 
 	int length = SortedList_length(list);
 	if(  length != 0 ) {
