@@ -1,0 +1,20 @@
+NAME: Bach Hoang
+ID: 104737449
+EMAIL: ko.wing.bird@gmail.com
+
+2.3.1:
+Most of the cycles in the 1 and 2-thread list tests are probably spent on incrementing
+the counter for add and doing the list operations for list.
+The reason is that the number of threads are small so they probably operates in a
+seemingly sequential manner without much context-switch.
+
+Most of the time/cycles in the high-thread spin lock are probably spent on checking
+and spinning. 
+
+Most of the time/cycles in the high-thread mutex tests are probably spent on acquiring
+and releasing the lock.
+
+2.3.2:
+
+
+2.3.3:
