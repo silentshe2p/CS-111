@@ -75,7 +75,7 @@ long long elapsed_time( struct timespec *start, struct timespec *end ) {
 	return BILLION * (end->tv_sec - start->tv_sec) + end->tv_nsec - start->tv_nsec;
 }
 
-void *thead_func( void *v_tid ) {
+void *thread_func( void *v_tid ) {
 	int tid = *(int *)v_tid;
 	SortedListElement_t *element;
 	SortedSubList_t *sub;
@@ -272,7 +272,7 @@ int main( int argc, char *argv[] ) {
 	// Create thread(s)
 	for( int i = 0; i < num_threads; i++ ) {
 		tids[i] = i;
-		if( pthread_create( &threads[i], NULL, thead_func, &tids[i] ) != 0 ) {
+		if( pthread_create( &threads[i], NULL, thread_func, &tids[i] ) != 0 ) {
 			fprintf( stderr, "pthread_create() failed\n" );
 			exit(1);
 		}
