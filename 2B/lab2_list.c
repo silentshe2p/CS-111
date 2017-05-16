@@ -21,7 +21,6 @@ int num_lists = 1;
 int iterations = 1;
 int opt_yield = 0;
 int required = 0;
-int lock = 0;
 char sync = '\0';
 
 typedef struct {
@@ -80,7 +79,7 @@ void *thread_func( void *v_tid ) {
 	SortedListElement_t *element;
 	SortedSubList_t *sub;
 	struct timespec start, end;
-	long long mutex_wait_time = 0;
+	long long wait_time = 0;
 	// Insert elements into the list
 	for( int i = tid; i < required; i += num_threads ) {
 		element = &elements[i];
@@ -89,12 +88,15 @@ void *thread_func( void *v_tid ) {
 			clock_gettime( CLOCK_MONOTONIC, &start );
 			pthread_mutex_lock(&sub->m_lock);
 			clock_gettime( CLOCK_MONOTONIC, &end );
-			mutex_wait_time += elapsed_time(&start, &end);
+			wait_time += elapsed_time(&start, &end);
 			SortedList_insert( &sub->list, element );
 			pthread_mutex_unlock(&sub->m_lock);
 		}
 		else if( sync == SPIN ) {
+			clock_gettime( CLOCK_MONOTONIC, &start );
 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+			clock_gettime( CLOCK_MONOTONIC, &end );
+			wait_time += elapsed_time(&start, &end);			
 			SortedList_insert( &sub->list, element );
 			__sync_lock_release(&sub->s_lock);
 		}
@@ -108,22 +110,21 @@ void *thread_func( void *v_tid ) {
 		for( int i = 0; i < num_lists; i++ )
 			pthread_mutex_lock( &list[i].m_lock );
 		clock_gettime( CLOCK_MONOTONIC, &end );
-		mutex_wait_time += elapsed_time(&start, &end);
+		wait_time += elapsed_time(&start, &end);
 		for( int i = 0; i < num_lists; i++ )
 			SortedList_length( &list[i].list );
 		for( int i = 0; i < num_lists; i++ )
 			pthread_mutex_unlock( &list[i].m_lock );
 	}
 	else if( sync == SPIN ) {
-		clock_gettime( CLOCK_MONOTONIC, &start );
-		for( int i = 0; i < num_lists; i++ )
-			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
-		clock_gettime( CLOCK_MONOTONIC, &end );
-		mutex_wait_time += elapsed_time(&start, &end);
-		for( int i = 0; i < num_lists; i++ )
+		for( int i = 0; i < num_lists; i++ ) {
+			clock_gettime( CLOCK_MONOTONIC, &start );
+			while( __sync_lock_test_and_set( &list[i].s_lock, 1 ) == 1 );
+			clock_gettime( CLOCK_MONOTONIC, &end );
+			wait_time += elapsed_time(&start, &end);			
 			SortedList_length( &list[i].list );
-		for( int i = 0; i < num_lists; i++ )
-			__sync_lock_release(&sub->s_lock);
+			__sync_lock_release(&list[i].s_lock);
+		}
 	}
 	else {
 		for( int i = 0; i < num_lists; i++ )
@@ -140,7 +141,7 @@ void *thread_func( void *v_tid ) {
 			clock_gettime( CLOCK_MONOTONIC, &start );
 			pthread_mutex_lock(&sub->m_lock);
 			clock_gettime( CLOCK_MONOTONIC, &end );
-			mutex_wait_time += elapsed_time(&start, &end);
+			wait_time += elapsed_time(&start, &end);
 			tmp = SortedList_lookup( &sub->list, element->key );
 			if( tmp == NULL ) {
 				fprintf( stderr, "Unable to find an element that was inserted\n" );
@@ -153,7 +154,10 @@ void *thread_func( void *v_tid ) {
 			pthread_mutex_unlock(&sub->m_lock);
 		}
 		else if( sync == SPIN ) {
+			clock_gettime( CLOCK_MONOTONIC, &start );
 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+			clock_gettime( CLOCK_MONOTONIC, &end );
+			wait_time += elapsed_time(&start, &end);			
 			tmp = SortedList_lookup( &sub->list, element->key );
 			if( tmp == NULL ) {
 				fprintf( stderr, "Unable to find an element that was inserted\n" );
@@ -177,7 +181,7 @@ void *thread_func( void *v_tid ) {
 			}		
 		}
 	}
-	return (void *)mutex_wait_time;
+	return (void *)wait_time;
 }
 
 int main( int argc, char *argv[] ) {
@@ -259,8 +263,8 @@ int main( int argc, char *argv[] ) {
 
 	pthread_t threads[num_threads];
 	int *tids = malloc( num_threads * sizeof(int) );
-	long long mutex_wait_time = 0;
-	void *mutex_wait_time_thread = NULL;
+	long long wait_time = 0;
+	void *wait_time_thread = NULL;
 	struct timespec start, end;
 
 	// Start timer
@@ -279,11 +283,11 @@ int main( int argc, char *argv[] ) {
 	}
 	// Join thread(s)
 	for( int i = 0; i < num_threads; i++ ) {
-		if( pthread_join( threads[i], &mutex_wait_time_thread ) != 0 ) {
+		if( pthread_join( threads[i], &wait_time_thread ) != 0 ) {
 			fprintf( stderr, "pthread_join failed\n" );
 			exit(1);
 		}
-		mutex_wait_time += (long long)mutex_wait_time_thread;
+		wait_time += (long long)wait_time_thread;
 	}
 
 	// Stop timer
@@ -317,7 +321,7 @@ int main( int argc, char *argv[] ) {
 		else
 			fprintf( stdout, "list-none-%c", sync );
 	}
-	fprintf( stdout, ",%d,%d,%d,%lld,%lld,%lld,%lld\n", num_threads, iterations, num_lists, num_operations, total_run_time, avg_time_per_op, mutex_wait_time/num_operations );
+	fprintf( stdout, ",%d,%d,%d,%lld,%lld,%lld,%lld\n", num_threads, iterations, num_lists, num_operations, total_run_time, avg_time_per_op, wait_time/num_operations );
 	free(tids);
 	free(elements);
 	free(list);

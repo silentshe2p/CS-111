@@ -15,6 +15,34 @@ Most of the time/cycles in the high-thread mutex tests are probably spent on acq
 and releasing the lock.
 
 2.3.2:
+According to profile.out, the while loop checking for spin lock comsumed most of the cycles.
 
+With large number of threads, the chance of threads trying to acquire locks is high which
+means long waiting time wasting CPU cycles.
 
 2.3.3:
+The average lock-wait time rises dramatically with the number of contending threads since 
+more and more threads need to wait for the lock increasing the overall waiting time.
+
+The completion time per operation rise less dramatically with the number of contending
+threads because a large number while increase the waiting time, also lower the cost
+of context-switch in between.
+
+The wait time per operation can go up faster than the completion time per operation
+because the wait time is CPU time which can add up fast when the waiting period of multiple
+threads happens at the same time while the completion time is the wall time.
+
+
+2.3.4:
+The perfomance of the synchronized methods will increase as the number of lists increase
+since the list will be divided into smaller sublist decreasing the contention between
+threads.
+
+The throughtput should not continue increasing as the number of lists is further increases 
+because at some point, when we The throughtput should not continue increasing as the number
+of lists is further increases because after we have enough number of sublists to eliminate 
+the contention we won't get any more increase in throughtput.
+
+The throughtput of an N-way partitioned list should not be equivalent to the throughtput of 
+a single list with fewer threads since dividing up the list into smaller sublists decreasing
+the workload as well as the size of critical section.

@@ -1,0 +1,236 @@
+Total: 695 samples
+     486  69.9%  69.9%      695 100.0% thread_func
+     170  24.5%  94.4%      170  24.5% __strcmp_sse42
+      24   3.5%  97.8%      115  16.5% SortedList_insert
+      11   1.6%  99.4%       94  13.5% SortedList_lookup
+       4   0.6% 100.0%        4   0.6% _init
+       0   0.0% 100.0%      695 100.0% __clone
+       0   0.0% 100.0%      695 100.0% start_thread
+ROUTINE ====================== thread_func in /u/cs/ugrad/bachh/CS-111/2B/lab2_list.c
+   486    695 Total samples (flat / cumulative)
+     .      .   72: 
+     .      .   73: long long elapsed_time( struct timespec *start, struct timespec *end ) {
+     .      .   74: 	return BILLION * (end->tv_sec - start->tv_sec) + end->tv_nsec - start->tv_nsec;
+     .      .   75: }
+     .      .   76: 
+---
+     .      .   77: void *thread_func( void *v_tid ) {
+     .      .   78: 	int tid = *(int *)v_tid;
+     .      .   79: 	SortedListElement_t *element;
+     .      .   80: 	SortedSubList_t *sub;
+     .      .   81: 	struct timespec start, end;
+     .      .   82: 	long long mutex_wait_time = 0;
+     .      .   83: 	// Insert elements into the list
+     .      .   84: 	for( int i = tid; i < required; i += num_threads ) {
+     .      .   85: 		element = &elements[i];
+     .      .   86: 		sub = &list[ djb_hash( element->key, KEY_LENGTH ) % num_lists ];
+     .      .   87: 		if( sync == MUTEX ) {
+     .      .   88: 			clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .   89: 			pthread_mutex_lock(&sub->m_lock);
+     .      .   90: 			clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .   91: 			mutex_wait_time += elapsed_time(&start, &end);
+     .      .   92: 			SortedList_insert( &sub->list, element );
+     .      .   93: 			pthread_mutex_unlock(&sub->m_lock);
+     .      .   94: 		}
+     .      .   95: 		else if( sync == SPIN ) {
+   358    358   96: 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+     .    115   97: 			SortedList_insert( &sub->list, element );
+     .      .   98: 			__sync_lock_release(&sub->s_lock);
+     .      .   99: 		}
+     .      .  100: 		else
+     .      .  101: 			SortedList_insert( &sub->list, element );
+     .      .  102: 	}
+     .      .  103: 
+     .      .  104: 	// Get the list length
+     .      .  105: 	if( sync == MUTEX ) {
+     .      .  106: 		clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .  107: 		for( int i = 0; i < num_lists; i++ )
+     .      .  108: 			pthread_mutex_lock( &list[i].m_lock );
+     .      .  109: 		clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .  110: 		mutex_wait_time += elapsed_time(&start, &end);
+     .      .  111: 		for( int i = 0; i < num_lists; i++ )
+     .      .  112: 			SortedList_length( &list[i].list );
+     .      .  113: 		for( int i = 0; i < num_lists; i++ )
+     .      .  114: 			pthread_mutex_unlock( &list[i].m_lock );
+     .      .  115: 	}
+     .      .  116: 	else if( sync == SPIN ) {
+     .      .  117: 		for( int i = 0; i < num_lists; i++ ) {
+     .      .  118: 			while( __sync_lock_test_and_set( &list[i].s_lock, 1 ) == 1 );
+     .      .  119: 			SortedList_length( &list[i].list );
+     .      .  120: 			__sync_lock_release(&list[i].s_lock);
+     .      .  121: 		}
+     .      .  122: 	}
+     .      .  123: 	else {
+     .      .  124: 		for( int i = 0; i < num_lists; i++ )
+     .      .  125: 			SortedList_length( &list[i].list );		
+     .      .  126: 	}
+     .      .  127: 
+     .      .  128: 
+     .      .  129: 	// Lookup and delete previously inserted elements from the list
+     .      .  130: 	SortedListElement_t *tmp;
+     .      .  131: 	for( int i = tid; i < required; i += num_threads ) {
+     .      .  132: 		element = &elements[i];
+     .      .  133: 		sub = &list[ djb_hash( element->key, KEY_LENGTH ) % num_lists ];		
+     .      .  134: 		if( sync == MUTEX ) {
+     .      .  135: 			clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .  136: 			pthread_mutex_lock(&sub->m_lock);
+     .      .  137: 			clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .  138: 			mutex_wait_time += elapsed_time(&start, &end);
+     .      .  139: 			tmp = SortedList_lookup( &sub->list, element->key );
+     .      .  140: 			if( tmp == NULL ) {
+     .      .  141: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  142: 				exit(2);
+     .      .  143: 			}
+     .      .  144: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  145: 				fprintf( stderr, "Unable to delele\n" );
+     .      .  146: 				exit(2);
+     .      .  147: 			}				
+     .      .  148: 			pthread_mutex_unlock(&sub->m_lock);
+     .      .  149: 		}
+     .      .  150: 		else if( sync == SPIN ) {
+   128    128  151: 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+     .     94  152: 			tmp = SortedList_lookup( &sub->list, element->key );
+     .      .  153: 			if( tmp == NULL ) {
+     .      .  154: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  155: 				exit(2);
+     .      .  156: 			}			
+     .      .  157: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  158: 				fprintf( stderr, "Unable to delele\n" );
+     .      .  159: 				exit(2);
+     .      .  160: 			}				
+     .      .  161: 			__sync_lock_release(&sub->s_lock);
+     .      .  162: 		}
+     .      .  163: 		else {
+     .      .  164: 			tmp = SortedList_lookup( &sub->list, element->key );	
+     .      .  165: 			if( tmp == NULL ) {
+     .      .  166: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  167: 				exit(2);
+     .      .  168: 			}
+     .      .  169: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  170: 				fprintf( stderr, "Unable to delele with key of %s\n", tmp->key );
+     .      .  171: 				exit(2);
+     .      .  172: 			}		
+     .      .  173: 		}
+     .      .  174: 	}
+     .      .  175: 	return (void *)mutex_wait_time;
+     .      .  176: }
+---
+     .      .  177: 
+     .      .  178: int main( int argc, char *argv[] ) {
+     .      .  179: 	int opt = 0;
+     .      .  180: 	static struct option long_opts[] = 
+     .      .  181: 	{
+ROUTINE ====================== thread_func in /u/cs/ugrad/bachh/CS-111/2B/lab2_list.c
+   486    695 Total samples (flat / cumulative)
+     .      .   72: 
+     .      .   73: long long elapsed_time( struct timespec *start, struct timespec *end ) {
+     .      .   74: 	return BILLION * (end->tv_sec - start->tv_sec) + end->tv_nsec - start->tv_nsec;
+     .      .   75: }
+     .      .   76: 
+---
+     .      .   77: void *thread_func( void *v_tid ) {
+     .      .   78: 	int tid = *(int *)v_tid;
+     .      .   79: 	SortedListElement_t *element;
+     .      .   80: 	SortedSubList_t *sub;
+     .      .   81: 	struct timespec start, end;
+     .      .   82: 	long long mutex_wait_time = 0;
+     .      .   83: 	// Insert elements into the list
+     .      .   84: 	for( int i = tid; i < required; i += num_threads ) {
+     .      .   85: 		element = &elements[i];
+     .      .   86: 		sub = &list[ djb_hash( element->key, KEY_LENGTH ) % num_lists ];
+     .      .   87: 		if( sync == MUTEX ) {
+     .      .   88: 			clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .   89: 			pthread_mutex_lock(&sub->m_lock);
+     .      .   90: 			clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .   91: 			mutex_wait_time += elapsed_time(&start, &end);
+     .      .   92: 			SortedList_insert( &sub->list, element );
+     .      .   93: 			pthread_mutex_unlock(&sub->m_lock);
+     .      .   94: 		}
+     .      .   95: 		else if( sync == SPIN ) {
+   358    358   96: 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+     .    115   97: 			SortedList_insert( &sub->list, element );
+     .      .   98: 			__sync_lock_release(&sub->s_lock);
+     .      .   99: 		}
+     .      .  100: 		else
+     .      .  101: 			SortedList_insert( &sub->list, element );
+     .      .  102: 	}
+     .      .  103: 
+     .      .  104: 	// Get the list length
+     .      .  105: 	if( sync == MUTEX ) {
+     .      .  106: 		clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .  107: 		for( int i = 0; i < num_lists; i++ )
+     .      .  108: 			pthread_mutex_lock( &list[i].m_lock );
+     .      .  109: 		clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .  110: 		mutex_wait_time += elapsed_time(&start, &end);
+     .      .  111: 		for( int i = 0; i < num_lists; i++ )
+     .      .  112: 			SortedList_length( &list[i].list );
+     .      .  113: 		for( int i = 0; i < num_lists; i++ )
+     .      .  114: 			pthread_mutex_unlock( &list[i].m_lock );
+     .      .  115: 	}
+     .      .  116: 	else if( sync == SPIN ) {
+     .      .  117: 		for( int i = 0; i < num_lists; i++ ) {
+     .      .  118: 			while( __sync_lock_test_and_set( &list[i].s_lock, 1 ) == 1 );
+     .      .  119: 			SortedList_length( &list[i].list );
+     .      .  120: 			__sync_lock_release(&list[i].s_lock);
+     .      .  121: 		}
+     .      .  122: 	}
+     .      .  123: 	else {
+     .      .  124: 		for( int i = 0; i < num_lists; i++ )
+     .      .  125: 			SortedList_length( &list[i].list );		
+     .      .  126: 	}
+     .      .  127: 
+     .      .  128: 
+     .      .  129: 	// Lookup and delete previously inserted elements from the list
+     .      .  130: 	SortedListElement_t *tmp;
+     .      .  131: 	for( int i = tid; i < required; i += num_threads ) {
+     .      .  132: 		element = &elements[i];
+     .      .  133: 		sub = &list[ djb_hash( element->key, KEY_LENGTH ) % num_lists ];		
+     .      .  134: 		if( sync == MUTEX ) {
+     .      .  135: 			clock_gettime( CLOCK_MONOTONIC, &start );
+     .      .  136: 			pthread_mutex_lock(&sub->m_lock);
+     .      .  137: 			clock_gettime( CLOCK_MONOTONIC, &end );
+     .      .  138: 			mutex_wait_time += elapsed_time(&start, &end);
+     .      .  139: 			tmp = SortedList_lookup( &sub->list, element->key );
+     .      .  140: 			if( tmp == NULL ) {
+     .      .  141: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  142: 				exit(2);
+     .      .  143: 			}
+     .      .  144: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  145: 				fprintf( stderr, "Unable to delele\n" );
+     .      .  146: 				exit(2);
+     .      .  147: 			}				
+     .      .  148: 			pthread_mutex_unlock(&sub->m_lock);
+     .      .  149: 		}
+     .      .  150: 		else if( sync == SPIN ) {
+   128    128  151: 			while( __sync_lock_test_and_set( &sub->s_lock, 1 ) == 1 );
+     .     94  152: 			tmp = SortedList_lookup( &sub->list, element->key );
+     .      .  153: 			if( tmp == NULL ) {
+     .      .  154: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  155: 				exit(2);
+     .      .  156: 			}			
+     .      .  157: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  158: 				fprintf( stderr, "Unable to delele\n" );
+     .      .  159: 				exit(2);
+     .      .  160: 			}				
+     .      .  161: 			__sync_lock_release(&sub->s_lock);
+     .      .  162: 		}
+     .      .  163: 		else {
+     .      .  164: 			tmp = SortedList_lookup( &sub->list, element->key );	
+     .      .  165: 			if( tmp == NULL ) {
+     .      .  166: 				fprintf( stderr, "Unable to find an element that was inserted\n" );
+     .      .  167: 				exit(2);
+     .      .  168: 			}
+     .      .  169: 			if( SortedList_delete(tmp) != 0 ) {
+     .      .  170: 				fprintf( stderr, "Unable to delele with key of %s\n", tmp->key );
+     .      .  171: 				exit(2);
+     .      .  172: 			}		
+     .      .  173: 		}
+     .      .  174: 	}
+     .      .  175: 	return (void *)mutex_wait_time;
+     .      .  176: }
+---
+     .      .  177: 
+     .      .  178: int main( int argc, char *argv[] ) {
+     .      .  179: 	int opt = 0;
+     .      .  180: 	static struct option long_opts[] = 
+     .      .  181: 	{
