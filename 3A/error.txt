@@ -1,0 +1,39 @@
+... Using temporary testing directory /tmp/TestTemp.2323
+... untaring lab3a-104737449.tar.gz
+lab3a.c
+ext2_fs.h
+Makefile
+README
+... checking for expected files
+        README ... OK
+        Makefile ... OK
+... checking for submitter info in README
+        NAME: ... BachHoang
+        EMAIL: ... ko.wing.bird@gmail.com
+        ID: ... 104737449
+... checking for expected make targets
+        clean ... OK
+        dist ... OK
+... checking for other files of expected types
+... building default target(s)
+... checking for expected products
+        ./lab3a ... OK
+... checking for expected usage
+        RC=1 ... OK
+... checking for handling of nonexistent image
+Error opening image
+        RC!=0, error message ... OK
+... Downloading test image http://www.cs.pomona.edu/classes/cs134/projects/trivial.img
+... Downloading test results http://www.cs.pomona.edu/classes/cs134/projects/trivial.csv
+... running ./lab3a on test image trivial.img
+... SUPER: OUTPUT DOES NOT MATCH
+... GROUP: OUTPUT DOES NOT MATCH
+... BFREE: OUTPUT DOES NOT MATCH
+... IFREE: OUTPUT DOES NOT MATCH
+... INODE: OUTPUT DOES NOT MATCH
+... DIRENT: OUTPUT DOES NOT MATCH
+... INDIRECT: OUTPUT DOES NOT MATCH
+
+SUBMISSION lab3a-104737449.tar.gz ... fails sanity check with 7 errors!
+
+
