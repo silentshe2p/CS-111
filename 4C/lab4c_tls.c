@@ -9,7 +9,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
-// #include <mraa.h>
+#include <mraa.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include <unistd.h>
@@ -17,6 +17,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
 
 #define CELCIUS 'C'
 #define FAHRENHEIT 'F'
@@ -128,6 +131,7 @@ int main( int argc, char *argv[] ) {
 		exit(1);
 	}
 
+	SSL* SSLStruct;
 	int socket_fd;
 	struct sockaddr_in server_addr;
 	struct hostent *server;
@@ -154,11 +158,26 @@ int main( int argc, char *argv[] ) {
 		exit(2);
 	}
 
-	// Writing id to server
-	if( write( socket_fd, id, strlen(id)+1 ) == -1 ) {
-		fprintf( stderr, "Error writing id" );
+	// Setting SSL
+	SSL_library_init();
+	SSL_load_error_strings();
+	OpenSSL_add_all_algorithms();
+	SSL_CTX* SSLClient = SSL_CTX_new(TLSv1_client_method());
+	SSLStruct = SSL_new(SSLClient);
+	if( SSL_set_fd(SSLStruct, socket_fd) == 0 ) {
+		fprintf( stderr, "SSL_set_fd() failed\n" );
 		exit(2);
 	}
+	if( SSL_connect(SSLStruct) != 1 ) {
+		fprintf( stderr, "SSL_connect() failed\n" );
+		exit(2);
+	}
+
+	// Writing id to server
+	if( SSL_write( socket_fd, id, strlen(id)+1 ) == -1 ) {
+		fprintf( stderr, "Error writing id" );
+		exit(2);
+	}	
 
 	struct pollfd pfd[1];
 	pfd[0].fd = socket_fd;
@@ -176,7 +195,7 @@ int main( int argc, char *argv[] ) {
 		}
 		if( pfd[0].revents & POLLIN ) {
 			// Get and process commands
-			read(socket_fd, cmd, MAX_CMD_LEN);
+			SSL_read(socket_fd, cmd, MAX_CMD_LEN);
 			if( strncmp( cmd, "OFF", OFF_LEN ) == 0 ) {
 				if(log_fl) {
 					report_cmd(log_fd, cmd);
@@ -228,5 +247,6 @@ int main( int argc, char *argv[] ) {
 		}	
 	}
 	close(socket_fd);
+	SSL_shutdown(SSLStruct);
 	return 0;
 }
