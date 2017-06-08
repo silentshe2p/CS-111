@@ -9,7 +9,7 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
-// #include <mraa.h>
+#include <mraa.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include <unistd.h>
@@ -69,8 +69,8 @@ void report_cmd( int fd, char *cmd ) {
 
 int main( int argc, char *argv[] ) {
 	int portno = -1;
-	int id = 123581321;
-	char *host = "lever.cs.ucla.edu";
+	char *id = "123581321";
+	char *hostname = "lever.cs.ucla.edu";
 	int log_fl = 0;
 	int stop_fl = 0;
 	int log_fd;
@@ -85,17 +85,17 @@ int main( int argc, char *argv[] ) {
 	while( (opt = getopt_long(argc, argv, "i:h:l:", long_opts, NULL)) != -1 ) {
 		switch(opt) {
  			case 'i': 
- 				if( strlen(optarg) != 10 ) { // null-terminated
- 					fprintf( stderr, "Using default since id is not a 9-digit-number\n" );
- 				}
-				id = atoi(optarg);
+ 				if( strlen(optarg) != 9 )
+ 					fprintf( stderr, "Using default id since provided id is not 9-digit\n" );
+				else
+					id = optarg;
 				break;
 			case 'h': 
-				host = optarg;
+				hostname = optarg;
 				break;
 			case 'l': 
 				log_fl = 1;
-				log_fd = open( optarg, O_WRONLY );
+				log_fd = creat( optarg, S_IRWXU );
 				if( log_fd == -1 ) {
 					fprintf( stderr, "Error creating log\n" );
 					exit(1);
@@ -137,7 +137,7 @@ int main( int argc, char *argv[] ) {
 		fprintf( stderr, "Error opening socket\n" );
 		exit(2);
 	}
-	server = gethostbyname(host);
+	server = gethostbyname(hostname);
 	if( server == NULL ) {
 		fprintf( stderr, "No such host\n" );
 		exit(1);
@@ -145,7 +145,7 @@ int main( int argc, char *argv[] ) {
 	// Init socket structure
 	memset( (char*) &server_addr, 0, sizeof(server_addr) );
 	server_addr.sin_family = AF_INET;
-	memcpy( (char*) server->h_addr, (char*) &server_addr.sin_addr.s_addr, server->h_length );
+	memcpy( (char*) &server_addr.sin_addr.s_addr, (char*) server->h_addr, server->h_length );
 	server_addr.sin_port = htons(portno);
 
 	// Connect to the server
@@ -154,18 +154,18 @@ int main( int argc, char *argv[] ) {
 		exit(2);
 	}
 
-	// Writing id to server
-	if( write( socket_fd, id, strlen(id)+1 ) == -1 ) {
-		fprintf( stderr, "Error writing id" );
-		exit(2);
-	}
+	// Reporting id
+	dprintf( socket_fd, "ID=%s\n", id );
+	if(log_fl)
+		dprintf( log_fd, "ID=%s\n", id );
 
 	struct pollfd pfd[1];
 	pfd[0].fd = socket_fd;
 	pfd[0].events = POLLIN;
 	int ret;
 	time_t now;
-	char cmd[MAX_CMD_LEN];
+	char *cmd = NULL;
+	size_t len = 0;
 
 	while(1) {
 		// Polling		
@@ -176,12 +176,21 @@ int main( int argc, char *argv[] ) {
 		}
 		if( pfd[0].revents & POLLIN ) {
 			// Get and process commands
-			read(socket_fd, cmd, MAX_CMD_LEN);
+			// Associate a stream with socket_fd
+			FILE *fdf = fdopen( socket_fd, "r" );
+			if( fdf == NULL ) {
+				fprintf( stderr, "Failed associating a stream to socket\n" );
+				exit(2);
+			}
+			getline( &cmd, &len, fdf );
 			if( strncmp( cmd, "OFF", OFF_LEN ) == 0 ) {
+				report_shutdown(socket_fd);
 				if(log_fl) {
 					report_cmd(log_fd, cmd);
 					report_shutdown(log_fd);
 				}
+				close(socket_fd);
+				mraa_aio_close(adc_a0);
 				exit(0);
 			}
 			else if( strncmp( cmd, "STOP", STOP_LEN ) == 0 ) {					
@@ -221,12 +230,12 @@ int main( int argc, char *argv[] ) {
 		// Reporting
 		now = time(0);
 		if( (now - last_report_time >= period) && !stop_fl ) {		
+			report( socket_fd, adc_a0 );
 			if(log_fl)
 				report( log_fd, adc_a0 );
-			else
-				report( socket_fd, adc_a0 );
 		}	
 	}
 	close(socket_fd);
+	mraa_aio_close(adc_a0);
 	return 0;
 }

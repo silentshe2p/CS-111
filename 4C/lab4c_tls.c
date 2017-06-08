@@ -34,16 +34,20 @@ const int TEMP_SENSOR_PIN = 0;
 const int B = 4275;
 const int R0 = 100000;
 const int TIMEOUT = 0;
+const int SSLSOCKET = 0;
+const int LOGFILE = 1;
 char scale = FAHRENHEIT;
 int period = 1;
 time_t last_report_time = 0;
+int log_fd = 0;
+SSL *ssl;
 
 void print_usage(int rc) {
 	fprintf( stderr, "Usage: lab4c [ihl] port#\n" );
 	exit(rc);
 }
 
-void report( int fd, mraa_aio_context adc_a0 ) {
+void report( int target, mraa_aio_context adc_a0 ) {
 	uint16_t adc_value = 0;
 	adc_value = mraa_aio_read(adc_a0);
 	float R = 1023.0/adc_value - 1.0;
@@ -55,28 +59,46 @@ void report( int fd, mraa_aio_context adc_a0 ) {
 	last_report_time = time(0);
 	struct tm *local = localtime(&last_report_time);
 	strftime( time_buf, sizeof(time_buf), "%H:%M:%S", local );
-	dprintf( fd, "%s %2.1f\n", time_buf, temperature );
+	if( target == SSLSOCKET ) {
+		char report_buf[15];
+		snprintf( report_buf, 15, "%s %2.1f\n", time_buf, temperature );
+		if( SSL_write( ssl, report_buf, strlen(report_buf)+1 ) <= 0 ) {
+			fprintf( stderr, "Error reporting to server\n" );
+			exit(2);
+		}
+	}
+	else if( target == LOGFILE )
+		dprintf( log_fd, "%s %2.1f\n", time_buf, temperature );
+	else
+		fprintf( stderr, "Undefined report target\n" );
 }
 
-void report_shutdown( int fd ) {
+void report_shutdown(int target) {
 	char time_buf[9];
 	time_t now = time(0);
 	struct tm *local = localtime(&now);
 	strftime( time_buf, sizeof(time_buf), "%H:%M:%S", local );
-	dprintf( fd, "%s SHUTDOWN\n", time_buf );
-}
-
-void report_cmd( int fd, char *cmd ) {
-	dprintf( fd, "%s", cmd );
+	if( target == SSLSOCKET ) {
+		char report_buf[19];
+		char *sd = "SHUTDOWN";
+		snprintf( report_buf, 19, "%s %s\n", time_buf, sd );
+		if( SSL_write( ssl, report_buf, strlen(report_buf)+1 ) <= 0 ) {
+			fprintf( stderr, "Error reporting to server\n" );
+			exit(2);
+		}
+	}
+	else if( target == LOGFILE )
+		dprintf( log_fd, "%s SHUTDOWN\n", time_buf );
+	else
+		fprintf( stderr, "Undefined report target\n" );
 }
 
 int main( int argc, char *argv[] ) {
 	int portno = -1;
-	int id = 123581321;
-	char *host = "lever.cs.ucla.edu";
+	char *id = "123581321";
+	char *hostname = "lever.cs.ucla.edu";
 	int log_fl = 0;
 	int stop_fl = 0;
-	int log_fd;
 	int opt = 0;
 	static struct option long_opts[] =
 	{
@@ -88,17 +110,18 @@ int main( int argc, char *argv[] ) {
 	while( (opt = getopt_long(argc, argv, "i:h:l:", long_opts, NULL)) != -1 ) {
 		switch(opt) {
  			case 'i': 
- 				if( strlen(optarg) != 10 ) { // null-terminated
+ 				if( strlen(optarg) != 9 ) {
  					fprintf( stderr, "Using default since id is not a 9-digit-number\n" );
  				}
-				id = atoi(optarg);
+				else
+					id = optarg;
 				break;
 			case 'h': 
-				host = optarg;
+				hostname = optarg;
 				break;
 			case 'l': 
 				log_fl = 1;
-				log_fd = open( optarg, O_WRONLY );
+				log_fd = creat( optarg, S_IRWXU );
 				if( log_fd == -1 ) {
 					fprintf( stderr, "Error creating log\n" );
 					exit(1);
@@ -131,7 +154,6 @@ int main( int argc, char *argv[] ) {
 		exit(1);
 	}
 
-	SSL* SSLStruct;
 	int socket_fd;
 	struct sockaddr_in server_addr;
 	struct hostent *server;
@@ -141,7 +163,7 @@ int main( int argc, char *argv[] ) {
 		fprintf( stderr, "Error opening socket\n" );
 		exit(2);
 	}
-	server = gethostbyname(host);
+	server = gethostbyname(hostname);
 	if( server == NULL ) {
 		fprintf( stderr, "No such host\n" );
 		exit(1);
@@ -149,7 +171,7 @@ int main( int argc, char *argv[] ) {
 	// Init socket structure
 	memset( (char*) &server_addr, 0, sizeof(server_addr) );
 	server_addr.sin_family = AF_INET;
-	memcpy( (char*) server->h_addr, (char*) &server_addr.sin_addr.s_addr, server->h_length );
+	memcpy( (char *) &server_addr.sin_addr.s_addr, (char*) server->h_addr, server->h_length );
 	server_addr.sin_port = htons(portno);
 
 	// Connect to the server
@@ -163,28 +185,32 @@ int main( int argc, char *argv[] ) {
 	SSL_load_error_strings();
 	OpenSSL_add_all_algorithms();
 	SSL_CTX* SSLClient = SSL_CTX_new(TLSv1_client_method());
-	SSLStruct = SSL_new(SSLClient);
-	if( SSL_set_fd(SSLStruct, socket_fd) == 0 ) {
+	ssl = SSL_new(SSLClient);
+	if( SSL_set_fd(ssl, socket_fd) == 0 ) {
 		fprintf( stderr, "SSL_set_fd() failed\n" );
 		exit(2);
 	}
-	if( SSL_connect(SSLStruct) != 1 ) {
+	if( SSL_connect(ssl) != 1 ) {
 		fprintf( stderr, "SSL_connect() failed\n" );
 		exit(2);
 	}
 
-	// Writing id to server
-	if( SSL_write( socket_fd, id, strlen(id)+1 ) == -1 ) {
+	// Reporting id
+	char id_msg[14];
+	snprintf( id_msg, 14, "ID=%s\n", id );
+	if( SSL_write( ssl, id_msg, strlen(id_msg)+1 ) == -1 ) {
 		fprintf( stderr, "Error writing id" );
 		exit(2);
-	}	
+	}
+	if(log_fl)
+		dprintf( log_fd, "ID=%s\n", id );
 
 	struct pollfd pfd[1];
 	pfd[0].fd = socket_fd;
 	pfd[0].events = POLLIN;
 	int ret;
 	time_t now;
-	char cmd[MAX_CMD_LEN];
+	char cmd[1024];
 
 	while(1) {
 		// Polling		
@@ -195,23 +221,30 @@ int main( int argc, char *argv[] ) {
 		}
 		if( pfd[0].revents & POLLIN ) {
 			// Get and process commands
-			SSL_read(socket_fd, cmd, MAX_CMD_LEN);
+			if( SSL_read( ssl, cmd, 1024 ) <= 0 ) {
+				fprintf( stderr, "Error reading from the server\n" );
+				exit(2);
+			}
 			if( strncmp( cmd, "OFF", OFF_LEN ) == 0 ) {
+				report_shutdown(SSLSOCKET);
 				if(log_fl) {
-					report_cmd(log_fd, cmd);
-					report_shutdown(log_fd);
+					dprintf( log_fd, "OFF\n" );
+					report_shutdown(LOGFILE);
 				}
+				close(socket_fd);
+				SSL_shutdown(ssl);
+				mraa_aio_close(adc_a0);
 				exit(0);
 			}
 			else if( strncmp( cmd, "STOP", STOP_LEN ) == 0 ) {					
 				stop_fl = 1;
 				if(log_fl)
-					report_cmd(log_fd, cmd);	
+					dprintf( log_fd, "STOP\n" );	
 			}
 			else if( strncmp( cmd, "START", START_LEN ) == 0 ) {	
 				stop_fl = 0;
 				if(log_fl)
-					report_cmd(log_fd, cmd);			
+					dprintf( log_fd, "START\n" );			
 			}
 			else if( strncmp( cmd, "SCALE=", SCALE_LEN ) == 0 ) {	
 				if( cmd[SCALE_LEN] == CELCIUS || cmd[SCALE_LEN] == FAHRENHEIT )
@@ -221,7 +254,7 @@ int main( int argc, char *argv[] ) {
 					  exit(1);
 				}
 				if(log_fl)
-					report_cmd(log_fd, cmd);	
+					dprintf( log_fd, "SCALE=%s\n", &scale );	
 			}	
 			else if( strncmp( cmd, "PERIOD=", PERIOD_LEN ) == 0 ) {
 				char *period_string = malloc( strlen(cmd)-PERIOD_LEN );
@@ -229,24 +262,24 @@ int main( int argc, char *argv[] ) {
 				period = atoi(period_string);
 				free(period_string);
 				if(log_fl)
-					report_cmd(log_fd, cmd);
+					dprintf( log_fd, "PERIOD=%d\n", period );
 			}
 			else {
 				if(log_fl)
-					report_cmd(log_fd, cmd);
+					dprintf( log_fd, "Unrecognized commmand\n" );
 				exit(1);
 			}		
 		}
 		// Reporting
 		now = time(0);
 		if( (now - last_report_time >= period) && !stop_fl ) {		
+			report( SSLSOCKET, adc_a0 );
 			if(log_fl)
-				report( log_fd, adc_a0 );
-			else
-				report( socket_fd, adc_a0 );
+				report( LOGFILE, adc_a0 );
 		}	
 	}
 	close(socket_fd);
-	SSL_shutdown(SSLStruct);
+	SSL_shutdown(ssl);
+	mraa_aio_close(adc_a0);
 	return 0;
 }

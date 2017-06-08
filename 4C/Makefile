@@ -9,13 +9,13 @@ tar_name = lab4c-$(ID).tar.gz
 CC = gcc
 CFLAG = -g -Wall -std=gnu99
 
-default: tcp
+default: tcp tls
 
 tcp:
-	$(CC) $(CFLAG) -o lab4c_tcp lab4c_tcp.c
+	$(CC) $(CFLAG) -lmraa -lm -o lab4c_tcp lab4c_tcp.c
 tls:
-	$(CC) $(CFLAG) -o lab4c_tls lab4c_tls.c
+	$(CC) $(CFLAG) -lmraa -lm -lssl -lcrypto -o lab4c_tls lab4c_tls.c
 dist:
 	tar -czf $(tar_name) $(files)
 clean:
-	rm -f lab4c_tcp lab4c_tls *.o
+	rm -f lab4c_tcp lab4c_tls *.o $(tar_name)
