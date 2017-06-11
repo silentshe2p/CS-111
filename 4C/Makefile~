@@ -18,4 +18,4 @@ tls:
 dist:
 	tar -czf $(tar_name) $(files)
 clean:
-	rm -f lab4c_tcp lab4c_tls *.o *.txt $(tar_name)
+	rm -f lab4c_tcp lab4c_tls *.o $(tar_name)
